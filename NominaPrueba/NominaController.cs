@@ -1,92 +1,42 @@
-using System;
-using System.IO;
-using System.Reflection;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
-using SistemaGestionHumanaGR;
+using NominaPrueba;
 
-namespace NominaDecrypt
+namespace NominaDecrypt;
+
+[ApiController]
+[Route("nomina")]
+[RequestSizeLimit(10 * 1024 * 1024)]
+public class NominaController(NominaCipher cipher) : ControllerBase
 {
-    [ApiController]
-    [Route("nomina")]
-    public class NominaController : ControllerBase
+    [HttpPost("decrypt")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> Decrypt([FromForm] IFormFile? file, CancellationToken cancellationToken)
     {
-        // Se invocan los métodos privados originales del cliente (cls_codificacion) por reflexión,
-        // para no modificar su archivo. La clave se toma de App.config -> AppSettings["encryptor"].
-        private static readonly MethodInfo DecryptFileMethod =
-            typeof(cls_codificacion).GetMethod("DecryptFile", BindingFlags.NonPublic | BindingFlags.Static)!;
-        private static readonly MethodInfo EncryptFileMethod =
-            typeof(cls_codificacion).GetMethod("EncryptFile", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var form = await Request.ReadFormAsync(cancellationToken);
+        if (form.Files.Count != 1 || file is null || file.Length == 0)
+            return BadRequest("Envia un solo archivo no vacio en el campo file.");
+        if (file.Length % 8 != 0)
+            return BadRequest("Archivo cifrado incompleto o formato incorrecto: el tamano debe ser multiplo de 8 bytes.");
 
-        // Descifra el archivo .enc recibido usando el mismo cls_codificacion del cliente.
-        [HttpPost("decrypt")]
-        public async Task<IActionResult> Decrypt(IFormFile file)
+        using var buffer = new MemoryStream();
+        await file.CopyToAsync(buffer, cancellationToken);
+        try
         {
-            if (file is null || file.Length == 0)
-                return BadRequest("Archivo vacío.");
-
-            var tempPath = Path.GetTempFileName();
-            try
-            {
-                await using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
-                {
-                    await file.CopyToAsync(fs);
-                }
-
-                object?[] args = { tempPath, null };
-                var result = DecryptFileMethod.Invoke(null, args);
-                if (result is not StreamReader sr)
-                    return StatusCode(500, "Error interno al descifrar el archivo: " + (args[1] as string));
-
-                string xml;
-                using (sr)
-                {
-                    xml = await sr.ReadToEndAsync();
-                }
-                return Content(xml, "application/xml");
-            }
-            catch (TargetInvocationException ex)
-            {
-                return StatusCode(500, "Error interno al descifrar el archivo: " + (ex.InnerException?.Message ?? ex.Message));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, "Error interno al descifrar el archivo: " + ex.Message);
-            }
-            finally
-            {
-                if (System.IO.File.Exists(tempPath))
-                    System.IO.File.Delete(tempPath);
-            }
+            return Content(cipher.Decrypt(buffer.ToArray()), "application/xml");
         }
-
-        // Cifra un XML (para probar ida y vuelta) usando el mismo cls_codificacion del cliente.
-        [HttpPost("encrypt")]
-        public async Task<IActionResult> Encrypt([FromBody] string content)
+        catch (CryptographicException)
         {
-            var tempPath = Path.GetTempFileName();
-            try
-            {
-                await System.IO.File.WriteAllTextAsync(tempPath, content ?? string.Empty);
-
-                object?[] args = { tempPath, null };
-                var ok = (bool)EncryptFileMethod.Invoke(null, args)!;
-                if (!ok)
-                    return StatusCode(500, "Error interno al cifrar el archivo: " + (args[1] as string));
-
-                var bytes = await System.IO.File.ReadAllBytesAsync(tempPath);
-                return File(bytes, "application/octet-stream", "Control_de_nomina.enc");
-            }
-            catch (TargetInvocationException ex)
-            {
-                return StatusCode(500, "Error interno al cifrar el archivo: " + (ex.InnerException?.Message ?? ex.Message));
-            }
-            finally
-            {
-                if (System.IO.File.Exists(tempPath))
-                    System.IO.File.Delete(tempPath);
-            }
+            return BadRequest("No se pudo descifrar: verifica el archivo original y la clave configurada.");
         }
+    }
+
+    [HttpPost("encrypt")]
+    [Consumes("application/json")]
+    public IActionResult Encrypt([FromBody] string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return BadRequest("El contenido no puede estar vacio.");
+        return File(cipher.Encrypt(content), "application/octet-stream", "Control_de_nomina.enc");
     }
 }

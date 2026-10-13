@@ -1,6 +1,11 @@
-@NominaPrueba_HostAddress = http://localhost:5145
+@HostAddress = http://localhost:5000
+@ApiKey = REPLACE_WITH_YOUR_API_KEY
 
-GET {{NominaPrueba_HostAddress}}/weatherforecast/
-Accept: application/json
+GET {{HostAddress}}/health
 
 ###
+POST {{HostAddress}}/nomina/encrypt
+X-Api-Key: {{ApiKey}}
+Content-Type: application/json
+
+"<nomina><empleado>Juan</empleado></nomina>"

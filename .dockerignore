@@ -1,0 +1,11 @@
+**/bin
+**/obj
+.git
+.idea
+.vs
+.agents
+.codex
+.aws
+.env
+.env.*
+**/App.config

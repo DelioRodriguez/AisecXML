@@ -6,3 +6,6 @@
 .codex/
 .aws/
 NominaPrueba/App.config
+.env
+.env.*
+!.env.example
