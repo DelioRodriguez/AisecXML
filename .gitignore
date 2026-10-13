@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+.idea/
+.vs/
+.agents/
+.codex/
+.aws/
+NominaPrueba/App.config
